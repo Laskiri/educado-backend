@@ -14,11 +14,11 @@ const { PasswordResetToken } = require('../models/PasswordResetToken');
 const { EmailVerificationToken } = require('../models/EmailVerificationToken');
 const { validateEmail, validateName, validatePassword } = require('../helpers/validation');
 const { sendVerificationEmail } = require('../helpers/email');
+const { ensureStudyStreakConsistency } = require('../helpers/studentHelper');
 
 const bcrypt = require('bcrypt');
 // Utility function to encrypt the token or password
-const TOKEN_EXPIRATION_TIME = 1000 * 60 * 5;
-
+const TOKEN_EXPIRATION_TIME = 1000 * 60 * 5; // 5 minutes
 
 // Utility function to compare raw token with hashed token
 const compareTokens = async (rawToken, hashedToken) => {
@@ -69,9 +69,10 @@ router.post('/login', async (req, res) => {
 
 		} else {
 			profile = await StudentModel.findOne({baseUser: user._id});
+
+			// Ensure student is on a study streak, else reset their streak
+			ensureStudyStreakConsistency(profile._id, profile.lastStudyDate);	// <- Notice: here 'profile' is the student object
 		}
-
-
 
 		// If the passwords match, return a success message
 		if (result) {
@@ -124,7 +125,7 @@ router.post('/signup', async (req, res) => {
         
 		// If user already exists, return error E0201
 		if (user) {
-			return res.status(400).json({ error: errorCodes['E0201'] }); // Content creator already registered
+			return res.status(400).send({ error: errorCodes['E0201'] }); // Content creator already registered
 		} 
 		
 		if(onboardedInstitution || onboardedSecondaryInstitution){
@@ -142,7 +143,7 @@ router.post('/signup', async (req, res) => {
 			await new EmailVerificationToken({
 				userEmail: lowercaseEmail,
 				token: hashedToken,  // Store the hashed token
-				expiresAt: Date.now() + TOKEN_EXPIRATION_TIME,
+				expiresAt: new Date(Date.now() + TOKEN_EXPIRATION_TIME), // Convert to Date object  
 			}).save();
 
 			// Send verification email with the raw token (not hashed)
@@ -181,7 +182,7 @@ router.post('/signup', async (req, res) => {
 
 			// Respond with the created user and institution data
 			res.status(201).json({
-				message: 'Email verified and user created successfully!',
+				message: 'Email verificado e usuário criado com sucesso!',
 				baseUser: createdUser,
 				contentCreatorProfile: createdContentCreator,
 				studentProfile: createdStudent,
@@ -200,14 +201,16 @@ router.post('/verify-email', async (req, res) => {
 		const emailVerificationToken = await EmailVerificationToken.findOne({ userEmail: lowercaseEmail });
 
 		if (!emailVerificationToken) {
-			return res.status(400).json({ error: 'Invalid or expired token.1' });
+			return res.status(400).json({ message: 'Código inválido ou expirado' });
 		}
 
 		// Check if the token matches
 		const isValid = await compareTokens(token, emailVerificationToken.token);
 
-		if (!isValid || emailVerificationToken.expiresAt < Date.now()) {
-			return res.status(400).json({ error: 'Invalid or expired token.1' });
+		if (!isValid) {
+			return res.status(400).json({
+				message: 'Código inválido ou expirado', 
+			});
 		}
 
 		// Token is valid, proceed with additional user validation
@@ -253,8 +256,8 @@ router.post('/verify-email', async (req, res) => {
 			createdContentCreator = await ContentCreatorModel.findOne({ baseUser: newUser._id });
 		}
 
-		// Delete the verification token
-		await EmailVerificationToken.deleteOne({ userEmail: lowercaseEmail });
+		// Delete all verification tokens associated with the userEmail
+		await EmailVerificationToken.deleteMany({ userEmail: lowercaseEmail });
 
 		// Respond with the created user and institution data
 		res.status(201).json({
@@ -315,7 +318,7 @@ router.post('/reset-password-request', async (req, res) => {
 	await new PasswordResetToken({
 		userId: user._id,
 		token: hash,
-		expiresAt: Date.now() + TOKEN_EXPIRATION_TIME // 5 minutes
+		expiresAt: new Date(Date.now() + TOKEN_EXPIRATION_TIME), // Set expiration time
 	}).save();
 
 	// Send email with reset token

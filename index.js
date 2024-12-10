@@ -9,16 +9,16 @@ const cookieSession = require('cookie-session');
 const router = require('./routes');
 const passport = require('passport');
 
-/* global process */
+
 const PORT = process.env.PORT || 8888; // Get dynamic port allocation when deployed by Heroku. Otherwise, by default, use port 5000
 
 // Setup connection to database
 connectToDb(keys.mongoURI, {
 	dbName: process.env.NODE_ENV === 'production' ? 'prod' : 'test',
-}, {
 	useNewUrlParser: true,
 	useUnifiedTopology: true,
 	useFindAndModify: false,
+	useCreateIndex: true,
 });
 
 const app = express(); // Configuration for listening, communicate to handlers
@@ -51,7 +51,6 @@ if (process.env.NODE_ENV === 'production') {
 	const path = require('path');
 	app.get('*', (req, res) => 
 	{
-		/* global __dirname */
 		res.sendFile(path.resolve(__dirname, 'client', 'build', 'index.html'));
 	});
 }
